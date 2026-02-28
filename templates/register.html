@@ -1,0 +1,27 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register | StoryScape</title>
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}">
+</head>
+<body>
+  <main class="container narrow">
+    <section class="panel">
+      <h1>Create Account</h1>
+      <form id="register-form" class="stack">
+        <input name="username" placeholder="Username" required>
+        <input name="email" type="email" placeholder="Email" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <input name="password_confirm" type="password" placeholder="Confirm Password" required>
+        <button type="submit" class="btn">Register</button>
+      </form>
+      <p id="status" class="muted"></p>
+      <p class="muted">Already registered? <a href="/login/">Login</a></p>
+    </section>
+  </main>
+  <script src="{% static 'js/register.js' %}"></script>
+</body>
+</html>

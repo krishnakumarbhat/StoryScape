@@ -1,0 +1,78 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>App | StoryScape</title>
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}">
+</head>
+<body>
+  <main class="container">
+    <section class="panel">
+      <div class="top-row">
+        <h1>Story Workspace</h1>
+        <div class="btn-row">
+          <a class="btn ghost" href="/login/">Login</a>
+          <button id="logout" class="btn ghost" type="button">Logout</button>
+        </div>
+      </div>
+      <p class="muted" id="status"></p>
+    </section>
+
+    <section class="panel two-col">
+      <div>
+        <h2>Create Story</h2>
+        <form id="story-form" class="stack">
+          <input name="title" placeholder="Story title" required>
+          <textarea name="initial_prompt" placeholder="Initial prompt" required></textarea>
+          <button class="btn" type="submit">Create</button>
+        </form>
+        <button class="btn" type="button" id="load-stories">Refresh Stories</button>
+
+        <h2>Add Node</h2>
+        <form id="node-form" class="stack">
+          <input name="content_text" placeholder="Node text" required>
+          <input name="parent_card_id" placeholder="Parent node id (optional)">
+          <button class="btn" type="submit">Add Node</button>
+        </form>
+
+        <h2>Connect Nodes</h2>
+        <form id="connect-form" class="stack">
+          <input name="source_card_id" placeholder="Source node id" required>
+          <input name="target_card_id" placeholder="Target node id" required>
+          <button class="btn" type="submit">Connect</button>
+        </form>
+
+        <h2>Upload Node Image</h2>
+        <form id="upload-form" class="stack">
+          <input name="node_id" placeholder="Node id" required>
+          <input name="image" type="file" accept="image/*" required>
+          <button class="btn" type="submit">Upload Image</button>
+        </form>
+
+        <h2>Generate Next Node</h2>
+        <form id="generate-form" class="stack">
+          <input name="parent_card_id" placeholder="Parent node id (optional)">
+          <select name="mode">
+            <option value="adventure">Adventure mode</option>
+            <option value="peaceful">Peaceful mode</option>
+            <option value="mystic">Mystic mode</option>
+          </select>
+          <button class="btn" type="submit">Generate Node</button>
+        </form>
+
+        <h2>My Stories</h2>
+        <ul id="story-list" class="list"></ul>
+      </div>
+
+      <div>
+        <h2>Graph Viewer</h2>
+        <svg id="graph-canvas" viewBox="0 0 900 420" class="graph"></svg>
+        <pre id="graph-json" class="json"></pre>
+      </div>
+    </section>
+  </main>
+  <script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>

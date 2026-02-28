@@ -2,7 +2,9 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from rest_framework.test import APITestCase
 from rest_framework import status
-from .models import Story, FlashCard, CardConnection
+from unittest.mock import patch
+
+from .models import Story, FlashCard
 from .utils import generate_embedding, perform_rag_search
 
 User = get_user_model()
@@ -67,7 +69,8 @@ class StoryAPITest(APITestCase):
         )
         self.client.force_authenticate(user=self.user)
     
-    def test_create_story(self):
+    @patch('stories.views.create_initial_story_task.delay')
+    def test_create_story(self, mock_delay):
         """Test creating a story via API."""
         data = {
             'title': 'API Test Story',
@@ -77,6 +80,7 @@ class StoryAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(Story.objects.count(), 1)
         self.assertEqual(Story.objects.first().title, 'API Test Story')
+        mock_delay.assert_called_once()
     
     def test_list_stories(self):
         """Test listing user's stories."""
@@ -95,6 +99,100 @@ class StoryAPITest(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 2)
 
+    @patch('stories.views.generate_story_segment_task.delay')
+    def test_create_flashcard_triggers_generation_task(self, mock_delay):
+        """Test flashcard endpoint dispatches async generation task."""
+        mock_delay.return_value.id = 'task-123'
+        story = Story.objects.create(
+            owner=self.user,
+            title='Test Story',
+            initial_prompt='First prompt'
+        )
+
+        response = self.client.post(
+            f'/api/stories/{story.id}/flashcards/',
+            {'user_prompt': 'Continue this story'},
+            format='json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(response.data['task_id'], 'task-123')
+        mock_delay.assert_called_once_with(
+            story_id=story.id,
+            user_prompt='Continue this story',
+            parent_card_id=None,
+        )
+
+
+class GuestStoryAPITest(APITestCase):
+    """Tests for guest mode with story cap."""
+
+    def test_guest_can_create_up_to_five_stories(self):
+        for index in range(5):
+            response = self.client.post(
+                '/api/stories/',
+                {
+                    'title': f'Guest Story {index}',
+                    'initial_prompt': 'Guest prompt'
+                },
+                format='json'
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        blocked_response = self.client.post(
+            '/api/stories/',
+            {
+                'title': 'Guest Story 6',
+                'initial_prompt': 'Guest prompt'
+            },
+            format='json'
+        )
+        self.assertEqual(blocked_response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_guest_list_only_shows_guest_session_stories(self):
+        self.client.post(
+            '/api/stories/',
+            {
+                'title': 'Guest Session Story',
+                'initial_prompt': 'Session prompt'
+            },
+            format='json'
+        )
+
+        response = self.client.get('/api/stories/')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data['results']), 1)
+
+
+class GraphEditorAPITest(APITestCase):
+    """Tests for manual graph editing endpoints."""
+
+    def setUp(self):
+        self.story_response = self.client.post(
+            '/api/stories/',
+            {'title': 'Graph Story', 'initial_prompt': 'Start graph'},
+            format='json'
+        )
+        self.story_id = self.story_response.data['id']
+
+    def test_manual_node_create(self):
+        response = self.client.post(
+            f'/api/stories/{self.story_id}/nodes/',
+            {'content_text': 'A manual branch node'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('id', response.data)
+
+    def test_generate_next_node_with_mode(self):
+        response = self.client.post(
+            f'/api/stories/{self.story_id}/generate-next/',
+            {'mode': 'adventure'},
+            format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data['mode'], 'adventure')
+
 
 class UtilityFunctionTest(TestCase):
     """Test cases for utility functions."""
@@ -105,7 +203,7 @@ class UtilityFunctionTest(TestCase):
         embedding = generate_embedding(text)
         
         self.assertIsInstance(embedding, list)
-        self.assertEqual(len(embedding), 384)  # all-MiniLM-L6-v2 dimension
+        self.assertEqual(len(embedding), 384)
         self.assertTrue(all(isinstance(x, (int, float)) for x in embedding))
     
     def test_perform_rag_search(self):

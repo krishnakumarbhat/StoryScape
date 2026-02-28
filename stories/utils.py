@@ -1,16 +1,45 @@
-import os
-from sentence_transformers import SentenceTransformer
 from typing import List, Optional
 import logging
+import base64
+import hashlib
+import os
+import uuid
+
+import requests
+from django.conf import settings
+from .ai_engine import generate_with_lang_stack
 
 logger = logging.getLogger(__name__)
 
-# Initialize the sentence transformer model
-try:
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-except Exception as e:
-    logger.warning(f"Could not load embedding model: {e}")
-    embedding_model = None
+
+class EmbeddingService:
+    """Lightweight deterministic embedding provider for SQLite-first setup."""
+
+    _instance = None
+    _dim = 384
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    @property
+    def dimension(self) -> int:
+        return self._dim
+
+    def generate(self, text: str) -> List[float]:
+        if not text:
+            return [0.0] * self.dimension
+
+        digest = hashlib.sha256(text.encode('utf-8')).digest()
+        numbers = []
+        for index in range(self.dimension):
+            byte = digest[index % len(digest)]
+            numbers.append((byte / 255.0) * 2.0 - 1.0)
+        return numbers
+
+
+embedding_service = EmbeddingService()
 
 
 def generate_embedding(text: str) -> List[float]:
@@ -23,16 +52,7 @@ def generate_embedding(text: str) -> List[float]:
     Returns:
         List of floats representing the embedding vector
     """
-    if not embedding_model:
-        # Return a dummy embedding if model is not available
-        return [0.0] * 384
-    
-    try:
-        embedding = embedding_model.encode(text)
-        return embedding.tolist()
-    except Exception as e:
-        logger.error(f"Error generating embedding: {e}")
-        return [0.0] * 384
+    return embedding_service.generate(text)
 
 
 def generate_story_segment(context: str, user_prompt: str) -> str:
@@ -52,30 +72,7 @@ def generate_story_segment(context: str, user_prompt: str) -> str:
     Returns:
         Generated story segment text
     """
-    # Placeholder implementation
-    # TODO: Replace with actual LLM integration
-    augmented_prompt = f"""Context: {context}
-
----
-
-Continue the story based on this prompt: {user_prompt}
-
-Story continuation:"""
-    
-    # This would be replaced with actual LLM call
-    # Example with OpenAI:
-    # import openai
-    # response = openai.ChatCompletion.create(
-    #     model="gpt-3.5-turbo",
-    #     messages=[
-    #         {"role": "system", "content": "You are a creative storyteller..."},
-    #         {"role": "user", "content": augmented_prompt}
-    #     ]
-    # )
-    # return response.choices[0].message.content
-    
-    # Placeholder response
-    return f"Based on the context and your prompt '{user_prompt}', here is the next segment of the story..."
+    return generate_with_lang_stack(context, user_prompt)
 
 
 def generate_image(prompt: str, style: Optional[str] = None) -> str:
@@ -95,24 +92,48 @@ def generate_image(prompt: str, style: Optional[str] = None) -> str:
     Returns:
         URL or path to the generated image
     """
-    # Placeholder implementation
-    # TODO: Replace with actual image generation integration
-    
-    # Example with Stable Diffusion:
-    # from diffusers import StableDiffusionPipeline
-    # import torch
-    # 
-    # pipe = StableDiffusionPipeline.from_pretrained(
-    #     "runwayml/stable-diffusion-v1-5",
-    #     torch_dtype=torch.float16
-    # )
-    # 
-    # image = pipe(prompt).images[0]
-    # image_path = f"media/generated_images/{uuid.uuid4()}.png"
-    # image.save(image_path)
-    # return image_path
-    
-    # Placeholder response
+    gemini_api_key = os.getenv('GEMINI_API_KEY', '').strip()
+    if not gemini_api_key:
+        return f"https://placeholder.com/image?text={prompt.replace(' ', '+')}"
+
+    model = os.getenv('GEMINI_IMAGE_MODEL', 'gemini-2.0-flash-exp')
+    endpoint = (
+        os.getenv('GEMINI_IMAGE_API_URL')
+        or f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_api_key}"
+    )
+    composed_prompt = prompt if not style else f"{prompt}. Style: {style}."
+
+    payload = {
+        'contents': [{'parts': [{'text': composed_prompt}]}],
+        'generationConfig': {'responseModalities': ['TEXT', 'IMAGE']},
+    }
+
+    try:
+        response = requests.post(endpoint, json=payload, timeout=60)
+        response.raise_for_status()
+        data = response.json()
+
+        candidates = data.get('candidates', [])
+        for candidate in candidates:
+            parts = candidate.get('content', {}).get('parts', [])
+            for part in parts:
+                inline_data = part.get('inlineData') or part.get('inline_data')
+                if not inline_data:
+                    continue
+                raw_b64 = inline_data.get('data')
+                if not raw_b64:
+                    continue
+
+                binary_data = base64.b64decode(raw_b64)
+                os.makedirs(os.path.join(settings.MEDIA_ROOT, 'generated_images'), exist_ok=True)
+                filename = f"generated_images/{uuid.uuid4()}.png"
+                file_path = os.path.join(settings.MEDIA_ROOT, filename)
+                with open(file_path, 'wb') as file_handle:
+                    file_handle.write(binary_data)
+                return f"{settings.MEDIA_URL}{filename}"
+    except Exception as error:
+        logger.warning("Gemini image generation failed, using placeholder: %s", error)
+
     return f"https://placeholder.com/image?text={prompt.replace(' ', '+')}"
 
 
@@ -129,17 +150,10 @@ def perform_rag_search(story_id: int, query_embedding: List[float], top_k: int =
         List of relevant story segment texts
     """
     from .models import FlashCard
-    from pgvector.django import CosineDistance
     
     try:
-        # Search for similar flashcards within the same story
-        similar_cards = FlashCard.objects.filter(
-            story_id=story_id
-        ).order_by(
-            CosineDistance('embedding', query_embedding)
-        )[:top_k]
-        
-        return [card.content_text for card in similar_cards]
-    except Exception as e:
-        logger.error(f"Error in RAG search: {e}")
+        recent_cards = FlashCard.objects.filter(story_id=story_id).order_by('-created_at')[:top_k]
+        return [card.content_text for card in reversed(list(recent_cards))]
+    except Exception as error:
+        logger.error("Error in RAG search: %s", error)
         return [] 

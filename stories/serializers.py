@@ -43,7 +43,8 @@ class StoryCreateSerializer(serializers.ModelSerializer):
         fields = ['title', 'initial_prompt']
     
     def create(self, validated_data):
-        validated_data['owner'] = self.context['request'].user
+        owner = self.context.get('owner_override') or self.context['request'].user
+        validated_data['owner'] = owner
         return super().create(validated_data)
 
 
@@ -76,10 +77,31 @@ class FlashCardUpdateSerializer(serializers.ModelSerializer):
         # Trigger embedding recalculation when content is updated
         instance = super().update(instance, validated_data)
         from .tasks import recalculate_embedding_task
-        recalculate_embedding_task.delay(instance.id)
+        try:
+            recalculate_embedding_task.delay(instance.id)
+        except Exception:
+            recalculate_embedding_task(instance.id)
         return instance
 
 
 class ImageGenerationSerializer(serializers.Serializer):
     """Serializer for image generation request."""
-    style = serializers.CharField(required=False, allow_blank=True) 
+    style = serializers.CharField(required=False, allow_blank=True)
+
+
+class ManualFlashCardCreateSerializer(serializers.Serializer):
+    """Serializer for creating a manual graph node."""
+    content_text = serializers.CharField()
+    parent_card_id = serializers.IntegerField(required=False, allow_null=True)
+
+
+class ConnectionCreateSerializer(serializers.Serializer):
+    """Serializer for creating a graph edge between nodes."""
+    source_card_id = serializers.IntegerField()
+    target_card_id = serializers.IntegerField()
+
+
+class GenerateNextNodesSerializer(serializers.Serializer):
+    """Serializer for auto-generating next nodes from a mode."""
+    parent_card_id = serializers.IntegerField(required=False, allow_null=True)
+    mode = serializers.ChoiceField(choices=['adventure', 'peaceful', 'mystic'])

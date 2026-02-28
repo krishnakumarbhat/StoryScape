@@ -1,6 +1,4 @@
 from django.db import models
-from django.conf import settings
-from pgvector.django import VectorField
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -26,7 +24,7 @@ class FlashCard(models.Model):
     """Model representing a story segment (flashcard) with vector embedding."""
     story = models.ForeignKey(Story, on_delete=models.CASCADE, related_name='flashcards')
     content_text = models.TextField()
-    embedding = VectorField(dimensions=384)  # For all-MiniLM-L6-v2 model
+    embedding = models.JSONField(default=list)
     image_url = models.URLField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

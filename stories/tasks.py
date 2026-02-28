@@ -1,4 +1,17 @@
-from celery import shared_task
+try:
+    from celery import shared_task
+except Exception:
+    def shared_task(func=None, **_kwargs):
+        def decorator(inner_func):
+            def delay(*args, **kwargs):
+                return inner_func(*args, **kwargs)
+
+            inner_func.delay = delay
+            return inner_func
+
+        if func is not None:
+            return decorator(func)
+        return decorator
 from django.core.exceptions import ObjectDoesNotExist
 from .models import Story, FlashCard, CardConnection
 from .utils import (

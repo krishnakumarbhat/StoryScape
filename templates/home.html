@@ -1,0 +1,24 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>StoryScape</title>
+  <link rel="stylesheet" href="{% static 'css/ui.css' %}">
+</head>
+<body>
+  <main class="container">
+    <section class="panel hero">
+      <p class="chip">StoryScape</p>
+      <h1>Interactive Story Graph Platform</h1>
+      <p>Create branching narratives, visualize graph flow, and explore up to 5 stories in guest mode.</p>
+      <div class="btn-row">
+        <a class="btn" href="/login/">Login</a>
+        <a class="btn" href="/register/">Register</a>
+        <a class="btn ghost" href="/app/">Continue as Guest</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
